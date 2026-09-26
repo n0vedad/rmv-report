@@ -1,0 +1,13 @@
+# AMD's Radeon Memory Visualizer, fetched by scripts/fetch-rmv.sh
+/radeon_memory_visualizer/
+
+# Build output
+/build/
+/compile_commands.json
+
+# Traces can be large and contain system information; only the example is tracked
+*.rmv
+!/examples/*.rmv
+
+# Editor / language server caches
+/.cache/
