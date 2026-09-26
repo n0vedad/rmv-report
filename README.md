@@ -85,6 +85,13 @@ configures the Qt frontend and has no switch to turn it off. This project's
 `CMakeLists.txt` therefore pulls in only the parser, the backend and their two
 dependencies (`libamdrdf`, `system_info_utils`) directly.
 
+The pinned release is the tested one. `scripts/fetch-rmv.sh --latest` fetches
+the newest RMV release instead, and `--tag vX.Y` a specific one. Both are
+untested: the parts of RMV's parser/backend API that rmv-report uses changed
+once in six releases (v1.12), but RMV's build files and dependency versions
+change in almost every release, and older releases (v1.14 and earlier) no
+longer compile with current GCC because of a missing include in AMD's code.
+
 To use an existing checkout elsewhere: `cmake -S . -B build -DRMV_SOURCE_DIR=/path/to/radeon_memory_visualizer`.
 
 `build/compile_commands.json` is generated for clangd and other language servers.
