@@ -21,49 +21,67 @@ on top, plus build glue and notes on how to record a trace with RADV.
 
 ## What the report shows
 
-For a number of evenly spaced points in time (default 10):
+The trace is sampled at a number of evenly spaced points in time (default 10).
 
-- per heap (local VRAM, invisible VRAM, system memory): memory requested,
-  bound and mapped, allocation count, mean and maximum allocation size,
-  resource count
-- for local VRAM: a breakdown by usage type (textures, buffers, render
-  targets, command buffers, ...)
-- **backing**: where the process's memory actually lives (local, invisible,
-  system, unbacked)
-- the allocation size distribution in power-of-two classes, with the
-  buddy-allocator *order* relative to 4 KiB pages
-- the most frequent resource sizes, each with its usage types
+1. **Timeline summary**: one row per point, so values can be followed over
+   time at a glance. It shows memory requested per heap (local VRAM, invisible
+   VRAM, system memory), where the process's memory is actually **backed**
+   (local, system, unbacked), the allocation count and the largest resource.
+2. **One detailed block per point**:
+   - heap status: requested, bound and mapped memory, allocation and resource
+     counts, mean and maximum allocation size
+   - the local heap broken down by usage type (textures, buffers, render
+     targets, command buffers, ...), with shares
+   - backing, with shares
+   - the allocation size distribution in power-of-two classes, with the
+     buddy-allocator *order* relative to 4 KiB pages
+   - the most frequent resource sizes, each with its usage types
+
+Sizes are printed with an automatically chosen unit (B, KiB, MiB, GiB); table
+columns that are compared across rows use a fixed unit named in the header.
+`-s` prints only the trace info and the summary.
 
 Excerpt, from the small RADV trace in `examples/` (`rmv-report -n 1 examples/vkcube-radv.rmv`):
 
 ```
-================ Trace ================
-  File                  examples/vkcube-radv.rmv
-  Target process ID     34583
-  Streams               1
-  Segments              3
-  Active GPU            0
-  Maximum timestamp     921120
-  Segment 0: Local (VRAM, CPU-visible)              16.000 GiB
-  Segment 1: Invisible (VRAM, not CPU-visible)       0.000 GiB
-  Segment 2: System (host memory)                   15.567 GiB
+TIMELINE SUMMARY
+================
+  One row per point in time: memory requested per heap, where the process's
+  memory is actually backed, and the allocation count.
 
-================ Timeline ================
-         Heap       req_GiB  bound_GiB mapped_GiB     allocs  mean_MiB   max_MiB resources
---- 100 % of the trace  (t = 921120) ---
-         Local        0.011      0.011      0.011         12      0.92      4.12        12
-                 by usage:  Render target  0.006  Command buffer  0.004  Depth stencil texture  0.001  Shader pipeline  0.000  Descriptors  0.000
-         Invis        0.000      0.000      0.000          0      0.00      0.00         0
-         System       0.000      0.000      0.000          3      0.09      0.25         3
-         backing Local  0.011  Invisible  0.000  System  0.000  unbacked  0.000 GiB
-                 allocations 15,  mean fragmentation 0.5333,  largest resource      4.12 MiB
-                 allocation sizes: median      0.02 MiB, p90      2.01 MiB, p99      4.12 MiB, total  0.011 GiB
-                   up to     0.004 MiB (order  0):    5 allocations
-                   ...
-                 most frequent resource sizes:
-                         6 x     2056 KiB  =   0.01 GiB   Heap:3 Render target:3
-                         3 x       16 KiB  =   0.00 GiB   Command buffer:3
-                         ...
+        |      Requested (GiB)       |       Backing (GiB)        |    Allocations
+  trace |    Local    Invis   System |    Local   System unbacked |   count     largest
+  ------+----------------------------+----------------------------+--------------------
+   100% |    0.011    0.000    0.000 |    0.011    0.000    0.000 |      15    4.12 MiB
+
+POINT 1 OF 1  -  100 % OF THE TRACE  (t = 921,120)
+==================================================
+
+  Heaps (GiB)      requested    bound   mapped    allocs   mean alloc    max alloc  resources
+    Local              0.011    0.011    0.011        12    940.7 KiB     4.12 MiB         12
+    Invisible          0.000    0.000    0.000         0          0 B          0 B          0
+    System             0.000    0.000    0.000         3       88 KiB      256 KiB          3
+
+  Local heap by usage
+    Render target              6.02 MiB   56.0 %  #################
+    Command buffer             4.17 MiB   38.8 %  ############
+    Depth stencil texture     576.0 KiB    5.2 %  ##
+    ...
+
+  Allocations
+    count 15, mean fragmentation 0.5333, largest resource 4.12 MiB
+    size: median 16 KiB, p90 2.01 MiB, p99 4.12 MiB, total 11.28 MiB
+
+    order  up to        count    share
+        0  4 KiB           5   33.3 %  ##########
+        2  16 KiB          3   20.0 %  ######
+    ...
+
+  Most frequent resource sizes
+     count         size        total   usage
+         6  x   2.01 MiB  =  12.05 MiB   Render target 3, Heap 3
+         3  x     16 KiB  =     48 KiB   Command buffer 3
+    ...
 ```
 
 ## Building
@@ -102,12 +120,31 @@ To use an existing checkout elsewhere: `cmake -S . -B build -DRMV_SOURCE_DIR=/pa
 rmv-report [options] <trace.rmv>
 
   -n, --points N   number of evenly spaced points in time (default 10, max 1000)
+  -s, --summary    print only the trace info and the timeline summary
   -h, --help       show help
 ```
 
 Exit codes: `0` success, `1` the trace could not be read, `2` usage error.
 
-Large traces take a while: each point in time rebuilds a full snapshot.
+Large traces take a while: each point in time rebuilds a full snapshot, so
+`-s` does not save time, it only shortens the output.
+
+### Input files are never modified
+
+RMV's backend is written for the GUI, which stores named snapshots *inside*
+the trace file. When it loads a writable trace, it writes every snapshot added
+through its API back into that file: 35 bytes per snapshot at the end of a
+RADV trace, a new chunk plus a rewritten chunk index in an RDF trace. Since the
+report adds one snapshot per point in time, it would change its input on
+every run.
+
+`rmv-report` therefore copies the trace to a private temporary directory
+(`$TMPDIR`, default `/tmp`), makes the copy read-only and loads that. The
+backend then opens it read-only and writes nothing. This needs free space for
+one copy of the trace.
+
+The report's `Stored snapshots` line lists the snapshots already stored in a
+trace, for example ones named in the RMV GUI.
 
 ## Recording a trace on Linux with RADV
 
